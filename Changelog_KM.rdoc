@@ -1,0 +1,13 @@
+== May 21-22
+* Extracted Session read methods into Netzke::Session module to be included where needed
+* Extracted reading and writing preferences fromapp/models/netzke_field_list.rb into seperate dedicated modules (and pref_helper) in netzke/preferences folder.
+* Converted nested if for selecting preferences read/write strategy into using appropriate pref strategy module
+* Converted models into Mongoid documents
+* Use acts_as_list for Mongoid in netzke_persistent_array_auto_model.rb (TODO: find and use most current gem)
+* Converted all model queries into cleaner Rails 3 versions that should work for both Active Record and Mongoid
+
+
+
+
+
+
