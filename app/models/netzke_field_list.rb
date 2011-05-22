@@ -177,11 +177,16 @@ class NetzkeFieldList
       end            
     end
 
+    def self.role_strategies
+      [:masqueraded_user, :masqueraded_role, :masqueraded_world, :netzke_user]
+    end
+
+    # select the first strategy that is "active" (present in session)
+    # if none active, select default
     def self.user_type
-      [:masqueraded_user, :masqueraded_role, :masqueraded_world, :netzke_user].select {|name| send(name) }.first || :default
+      role_strategies.select {|name| send(name) }.first || :default
     end
       
-
     def self.find_or_create_pref_to_read(name)
       conditions = extend_attrs_for_current_authority(:name => name)
       where(conditions) || new(conditions)
