@@ -6,12 +6,12 @@ module Netzke
       base.send :include, Netzke::Session
     end
 
-    def first_named_user name, user
-      first_named name, :user_id => user
+    def first_named_user name, user = nil
+      first_named name, :user => user
     end
 
-    def first_named_role name, role
-      first_named name, :role_id => role
+    def first_named_role name, role = nil
+      first_named name, :role => role
     end
 
     def first_named name, condition = {}                        

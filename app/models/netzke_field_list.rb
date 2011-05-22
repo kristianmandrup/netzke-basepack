@@ -31,39 +31,22 @@ class NetzkeFieldList
     update_attribute(:value, list.to_json)
   end
 
-  def self.find_all_below_current_authority_level(pref_name)
-    authority_level, authority_id = Netzke::Base.authority_level
-    case authority_level
-    when :world
-      all(:name => pref_name)
-    when :role
-      role = Role.find(authority_id)
-      role.users.inject([]) do |r, user|
-        r += all(:user_id => user.id, :name => pref_name)
-      end
-    else
-      []
-    end
+  def self.find_all_below_current_authority_level pref_name
+    auth_id, level = Netzke::Base.authority_level
+    authority_manager(level).new(auth_id).find_all_below_current pref_name
   end
 
-  def self.find_all_lists_under_current_authority(model_name)
-    authority_level, authority_id = Netzke::Base.authority_level
-    case authority_level
-    when :world
-      all(:model_name => model_name)
-    when :role
-      role = Role.find(authority_id)
-      role.users.inject([]) do |r, user|
-        r += all(:user_id => user.id, :model_name => model_name)
-      end
-    when :user
-      all(:user_id => authority_id, :model_name => model_name)
-    when :self
-      all(:user_id => authority_id, :model_name => model_name)
-    else
-      []
-    end
+  def self.find_all_lists_under_current_authority model_name
+    auth_id, level = Netzke::Base.authority_level
+    authority_manager(level)..new(auth_id).find_all_lists_under model_name
+  end
 
+  def self.authority_manager(level)
+    begin
+      "Netzke::Authority::#{level.camelize}".constantize
+    rescue
+      Netzke::Authority::Default
+    end
   end
 
 
@@ -79,15 +62,21 @@ class NetzkeFieldList
 
   # If the <tt>model</tt> param is provided, then this preference will be assigned a parent preference
   # that configures the attributes for that model. This way we can track all preferences related to a model.
-  def self.write_list(name, list, model = nil)
-    pref_to_store_the_list = pref_to_write(name)
-    pref_to_store_the_list.try(:update_attribute, :value, list.to_json)
+  def self.write_list(name, list, model = nil)    
+    pref_to_store_the_list(name).try(:update_attribute, :value, list.to_json)
 
     # link this preference to the parent that contains default attributes for the same model
-    if model
-      model_level_attrs_pref = pref_to_read("#{model.tableize}_model_attrs")
-      model_level_attrs_pref.children << pref_to_store_the_list if model_level_attrs_pref && pref_to_store_the_list
+    if model && model_level_attrs_pref(model) && pref_to_store_the_list(name)
+      model_level_attrs_pref(model).children << pref_to_store_the_list(name)
     end
+  end
+
+  def self.pref_to_store_the_list name 
+    pref_to_write(name)
+  end
+
+  def self.model_level_attrs_pref model 
+    pref_to_read("#{model.tableize}_model_attrs")
   end
 
   def self.read_list(name)
@@ -139,7 +128,6 @@ class NetzkeFieldList
   def self.update_children(model, meta_attrs)
     parent_pref = pref_to_read("#{model.tableize}_model_attrs")
 
-
     if parent_pref
       parent_pref.children.each do |ch|
         child_list = ActiveSupport::JSON.decode(ch.value)
@@ -156,10 +144,14 @@ class NetzkeFieldList
   private
 
     def self.propagate_attr(attr_name, src_list, dest_list)
-      for src_field in src_list
-        dest_field = dest_list.detect{ |df| df["name"] == src_field["name"] }
-        dest_field[attr_name] = src_field[attr_name] if dest_field && src_field[attr_name]
+      src_list.each do |src_field|
+        df = dest_field(dest_list, src_field)
+        df[attr_name] = src_field[attr_name] if df && src_field[attr_name]
       end
+    end
+
+    def self.dest_field dest_list, src_field
+      dest_list.detect{ |df| df["name"] == src_field["name"] }
     end
 
     # Overwrite pref_to_read, pref_to_write methods, and find_all_for_component if you want a different way of
@@ -174,30 +166,34 @@ class NetzkeFieldList
     #     the user/role specified
     #
     def self.pref_to_read(name)
-      "Netzke::#{user_type.camelize}".constantize.read name
+      preference_store(user_type).read name
+    end
+
+    def preference_store user_type
+      begin
+        "Netzke::PreferenceStore::#{user_type.camelize}".constantize
+      rescue
+        Netzke::PreferenceStore::Default
+      end            
     end
 
     def self.user_type
-      res = [:masqueraded_user, :masqueraded_role, :masqueraded_world, :netzke_user].select {|name| send(name) }
-      res ||= :default_user
+      [:masqueraded_user, :masqueraded_role, :masqueraded_world, :netzke_user].select {|name| send(name) }.first || :default
     end
       
 
     def self.find_or_create_pref_to_read(name)
-      extend_attrs_for_current_authority(:name => name)
-      where(:name => name) || new(:name => name)
+      conditions = extend_attrs_for_current_authority(:name => name)
+      where(conditions) || new(conditions)
     end
 
-    def self.extend_attrs_for_current_authority(hsh)
+    def self.extend_attrs_for_current_authority(conditions)
       authority_level, authority_id = Netzke::Base.authority_level
-      case authority_level
-      when :world
-        hsh.merge!(:role_id => 0)
-      when :role
-        hsh.merge!(:role_id => authority_id)
-      when :user, :self
-        hsh.merge!(:user_id => authority_id)
-      end
+      conditions.merge(authority_conditions authority_level)
+    end
+
+    def self.authority_conditions authority_level
+      authority_manager(authority_level).new(authority_id).conditions
     end
 
     def self.pref_to_write name
